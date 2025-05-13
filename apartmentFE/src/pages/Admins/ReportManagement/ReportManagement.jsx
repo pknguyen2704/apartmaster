@@ -46,6 +46,9 @@ import {
   AttachMoney as MoneyIcon,
   Assignment as AssignmentIcon,
   PictureAsPdf as PdfIcon,
+  BarChart as BarChartIcon,
+  PieChart as PieChartIcon,
+  TrendingUp as TrendingUpIcon,
 } from '@mui/icons-material';
 import {
   fetchReports,
@@ -55,23 +58,42 @@ import {
   generatePDF,
 } from '../../../redux/slices/reportSlice';
 import { fetchEmployees } from '../../../redux/slices/employeeSlice';
-import { fetchApartments } from '../../../redux/slices/apartmentSlice';
-import { fetchBills } from '../../../redux/slices/billSlice';
-import { fetchTasks } from '../../../redux/slices/taskSlice';
-import { fetchResidents } from '../../../redux/slices/residentSlice';
-import { fetchServices } from '../../../redux/slices/serviceSlice';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement,
+} from 'chart.js';
+import { Bar, Pie, Line } from 'react-chartjs-2';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import axios from 'axios';
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  ChartTooltip,
+  Legend,
+  ArcElement,
+  PointElement,
+  LineElement
+);
 
 const ReportManagement = () => {
   const dispatch = useDispatch();
   const { items: reports, loading, error, pdfGenerating, success } = useSelector((state) => state.reports);
   const { items: employees = [] } = useSelector((state) => state.employees);
-  const { items: apartments = [] } = useSelector((state) => state.apartments);
-  const { items: bills = [] } = useSelector((state) => state.bills);
-  const { items: tasks = [] } = useSelector((state) => state.tasks);
-  const { items: residents = [] } = useSelector((state) => state.residents);
-  const { items: services = [] } = useSelector((state) => state.services);
 
   // State for search and filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,9 +113,8 @@ const ReportManagement = () => {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
   const [formData, setFormData] = useState({
-    content: '',
     employeeId: '',
-    reportType: 'Tổng hợp',
+    note: '',
   });
 
   const [notification, setNotification] = useState({
@@ -102,7 +123,184 @@ const ReportManagement = () => {
     severity: 'success',
   });
 
-  const [isDataLoading, setIsDataLoading] = useState(true);
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        await Promise.all([
+          dispatch(fetchReports()),
+          dispatch(fetchEmployees())
+        ]);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      }
+    };
+    loadData();
+  }, [dispatch]);
+
+  const handleOpenDialog = (report = null) => {
+    if (report) {
+      setSelectedReport(report);
+      setFormData({
+        employeeId: report.employeeId,
+        note: '',
+      });
+    } else {
+      setSelectedReport(null);
+      setFormData({
+        employeeId: '',
+        note: '',
+      });
+    }
+    setOpenDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setSelectedReport(null);
+    setFormData({
+      employeeId: '',
+      note: '',
+    });
+  };
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
+  const handleSubmit = async () => {
+    try {
+      if (!formData.employeeId) {
+        setNotification({
+          open: true,
+          message: 'Vui lòng chọn người tạo báo cáo',
+          severity: 'error'
+        });
+        return;
+      }
+      if (selectedReport) {
+        await dispatch(updateReport({ 
+          id: selectedReport.reportId, 
+          data: formData 
+        })).unwrap();
+        setNotification({
+          open: true,
+          message: 'Cập nhật báo cáo thành công',
+          severity: 'success'
+        });
+        await dispatch(fetchReports());
+      } else {
+        await dispatch(createReport(formData)).unwrap();
+        setNotification({
+          open: true,
+          message: 'Tạo báo cáo thành công',
+          severity: 'success'
+        });
+        await dispatch(fetchReports());
+      }
+      handleCloseDialog();
+    } catch (error) {
+      setNotification({
+        open: true,
+        message: error.message || 'Có lỗi xảy ra khi lưu báo cáo',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (selectedReport) {
+      await dispatch(deleteReport(selectedReport.reportId)).unwrap();
+      setOpenDeleteDialog(false);
+      setNotification({
+        open: true,
+        message: 'Xóa báo cáo thành công',
+        severity: 'success'
+      });
+    }
+  };
+
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const getEmployeeName = (employeeId) => {
+    const employee = employees.find((emp) => emp.employeeId === employeeId);
+    return employee ? employee.fullName : 'Unknown';
+  };
+
+  const fetchSummaryData = async () => {
+    const [apartments, residents, employees, bills, tasks, services] = await Promise.all([
+      axios.get('/api/apartments'),
+      axios.get('/api/residents'),
+      axios.get('/api/employees'),
+      axios.get('/api/bills'),
+      axios.get('/api/tasks'),
+      axios.get('/api/services'),
+    ]);
+    return {
+      apartments: apartments.data.data || [],
+      residents: residents.data.data || [],
+      employees: employees.data.data || [],
+      bills: bills.data.data || [],
+      tasks: tasks.data.data || [],
+      services: services.data.data || [],
+    };
+  };
+
+  const handleExportSummaryPDF = async () => {
+    try {
+      const summary = await fetchSummaryData();
+      const doc = new jsPDF();
+      let y = 20;
+      doc.setFontSize(18);
+      doc.text('BÁO CÁO TỔNG HỢP CHUNG CƯ', 105, y, { align: 'center' });
+      y += 10;
+      doc.setFontSize(12);
+      doc.text(`Ngày tạo: ${new Date().toLocaleDateString('vi-VN')}`, 105, y, { align: 'center' });
+      y += 10;
+      doc.setFontSize(14);
+      doc.text('1. Thông tin chung:', 14, y); y += 8;
+      doc.setFontSize(12);
+      doc.text(`- Tổng số căn hộ: ${summary.apartments.length}`, 16, y); y += 7;
+      doc.text(`- Tổng số cư dân: ${summary.residents.length}`, 16, y); y += 7;
+      doc.text(`- Tổng số nhân viên: ${summary.employees.length}`, 16, y); y += 7;
+      doc.text(`- Tổng số dịch vụ: ${summary.services.length}`, 16, y); y += 10;
+      doc.setFontSize(14);
+      doc.text('2. Tài chính:', 14, y); y += 8;
+      doc.setFontSize(12);
+      const totalBills = summary.bills.length;
+      const totalPaid = summary.bills.filter(b => b.isPaid).reduce((sum, b) => sum + (b.money || 0), 0);
+      const totalUnpaid = summary.bills.filter(b => !b.isPaid).reduce((sum, b) => sum + (b.money || 0), 0);
+      doc.text(`- Tổng số hóa đơn: ${totalBills}`, 16, y); y += 7;
+      doc.text(`- Doanh thu đã thu: ${totalPaid.toLocaleString('vi-VN')}đ`, 16, y); y += 7;
+      doc.text(`- Doanh thu chưa thu: ${totalUnpaid.toLocaleString('vi-VN')}đ`, 16, y); y += 10;
+      doc.setFontSize(14);
+      doc.text('3. Công việc:', 14, y); y += 8;
+      doc.setFontSize(12);
+      const totalTasks = summary.tasks.length;
+      const completedTasks = summary.tasks.filter(t => t.status === 'Hoàn thành').length;
+      doc.text(`- Tổng số công việc: ${totalTasks}`, 16, y); y += 7;
+      doc.text(`- Số công việc hoàn thành: ${completedTasks}`, 16, y); y += 10;
+      // Có thể bổ sung chi tiết hơn nếu muốn
+      doc.save(`bao-cao-tong-hop-${new Date().toISOString().split('T')[0]}.pdf`);
+      setNotification({ open: true, message: 'Xuất PDF thành công', severity: 'success' });
+    } catch (error) {
+      setNotification({ open: true, message: 'Có lỗi khi xuất PDF', severity: 'error' });
+    }
+  };
+
+  const handleCloseNotification = () => {
+    setNotification(prev => ({ ...prev, open: false }));
+  };
 
   const styles = {
     pageContainer: {
@@ -242,276 +440,7 @@ const ReportManagement = () => {
     },
   };
 
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsDataLoading(true);
-        await Promise.all([
-          dispatch(fetchReports()),
-          dispatch(fetchEmployees()),
-          dispatch(fetchApartments()),
-          dispatch(fetchBills()),
-          dispatch(fetchTasks()),
-          dispatch(fetchResidents()),
-          dispatch(fetchServices())
-        ]);
-      } catch (error) {
-        // console.error('Error loading data:', error);
-      } finally {
-        setIsDataLoading(false);
-      }
-    };
-
-    loadData();
-  }, [dispatch]);
-
-  const generateReportContent = () => {
-    const totalApartments = apartments?.length || 0;
-    const occupiedApartments = apartments?.filter(apt => apt?.status === 'Đã cho thuê')?.length || 0;
-    const totalResidents = residents?.length || 0;
-    const totalEmployees = employees?.length || 0;
-    const totalBills = bills?.length || 0;
-    const totalTasks = tasks?.length || 0;
-    const totalServices = services?.length || 0;
-    const completedTasks = tasks?.filter(task => task?.status === 'Hoàn thành')?.length || 0;
-    const paidBills = bills?.filter(bill => bill?.isPaid)?.length || 0;
-
-    const occupancyRate = totalApartments > 0 ? (occupiedApartments / totalApartments) * 100 : 0;
-    const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-    const paymentRate = totalBills > 0 ? (paidBills / totalBills) * 100 : 0;
-    const residentsPerApartment = occupiedApartments > 0 ? (totalResidents / occupiedApartments) : 0;
-
-    const totalRevenue = bills?.reduce((sum, bill) => sum + (bill.money || 0), 0) || 0;
-    const paidRevenue = bills?.filter(bill => bill.isPaid).reduce((sum, bill) => sum + (bill.money || 0), 0) || 0;
-
-    return `
-BÁO CÁO ${formData.reportType.toUpperCase()} CHUNG CƯ
-Thời gian: ${format(new Date(), 'dd/MM/yyyy HH:mm')}
-
-1. THÔNG TIN CHUNG
-- Tổng số căn hộ: ${totalApartments}
-- Số căn hộ đã cho thuê: ${occupiedApartments}
-- Tỷ lệ lấp đầy: ${occupancyRate.toFixed(2)}%
-
-2. THÔNG TIN CƯ DÂN VÀ NHÂN VIÊN
-- Tổng số cư dân: ${totalResidents}
-- Tổng số nhân viên: ${totalEmployees}
-- Số cư dân trên căn hộ: ${residentsPerApartment.toFixed(2)}
-
-3. THÔNG TIN TÀI CHÍNH
-- Tổng số hóa đơn: ${totalBills}
-- Số hóa đơn đã thanh toán: ${paidBills}
-- Tỷ lệ thanh toán: ${paymentRate.toFixed(2)}%
-- Tổng doanh thu: ${totalRevenue.toLocaleString('vi-VN')}đ
-- Doanh thu đã thu: ${paidRevenue.toLocaleString('vi-VN')}đ
-
-4. THÔNG TIN DỊCH VỤ VÀ CÔNG VIỆC
-- Tổng số dịch vụ: ${totalServices}
-- Tổng số công việc: ${totalTasks}
-- Số công việc hoàn thành: ${completedTasks}
-- Tỷ lệ hoàn thành: ${completionRate.toFixed(2)}%
-
-5. PHÂN TÍCH VÀ ĐỀ XUẤT
-${formData.content || 'Chưa có phân tích và đề xuất'}
-    `;
-  };
-
-  const handleOpenDialog = (report = null) => {
-    if (report) {
-      setSelectedReport(report);
-      setFormData({
-        content: report.content,
-        employeeId: report.employeeId,
-        reportType: report.reportType || 'Tổng hợp',
-      });
-    } else {
-      setSelectedReport(null);
-      setFormData({
-        content: '',
-        employeeId: '',
-        reportType: 'Tổng hợp',
-      });
-    }
-    setOpenDialog(true);
-  };
-
-  const handleCloseDialog = () => {
-    setOpenDialog(false);
-    setSelectedReport(null);
-    setFormData({
-      content: '',
-      employeeId: '',
-      reportType: 'Tổng hợp',
-    });
-  };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
-
-  const handleSubmit = async () => {
-    try {
-      if (isDataLoading) {
-        setNotification({
-          open: true,
-          message: 'Đang tải dữ liệu, vui lòng thử lại sau',
-          severity: 'error'
-        });
-        return;
-      }
-
-      // Validate required fields
-      if (!formData.employeeId) {
-        setNotification({
-          open: true,
-          message: 'Vui lòng chọn người tạo báo cáo',
-          severity: 'error'
-        });
-        return;
-      }
-
-      if (!formData.reportType) {
-        setNotification({
-          open: true,
-          message: 'Vui lòng chọn loại báo cáo',
-          severity: 'error'
-        });
-        return;
-      }
-
-      const reportContent = generateReportContent();
-      const reportData = {
-        reportType: formData.reportType,
-        content: reportContent,
-        employeeId: formData.employeeId,
-      };
-
-      if (selectedReport) {
-        await dispatch(updateReport({ 
-          id: selectedReport.reportId, 
-          data: reportData 
-        })).unwrap();
-        setNotification({
-          open: true,
-          message: 'Cập nhật báo cáo thành công',
-          severity: 'success'
-        });
-      } else {
-        await dispatch(createReport(reportData)).unwrap();
-        setNotification({
-          open: true,
-          message: 'Tạo báo cáo thành công',
-          severity: 'success'
-        });
-      }
-      handleCloseDialog();
-    } catch (error) {
-      console.error('Error saving report:', error);
-      setNotification({
-        open: true,
-        message: error.message || 'Có lỗi xảy ra khi lưu báo cáo',
-        severity: 'error'
-      });
-    }
-  };
-
-  const handleDelete = async () => {
-    if (selectedReport) {
-      await dispatch(deleteReport(selectedReport.reportId)).unwrap();
-      setOpenDeleteDialog(false);
-      setNotification({
-        open: true,
-        message: 'Xóa báo cáo thành công',
-        severity: 'success'
-      });
-    }
-  };
-
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  const getEmployeeName = (employeeId) => {
-    const employee = employees.find((emp) => emp.employeeId === employeeId);
-    return employee ? employee.fullName : 'Unknown';
-  };
-
-  const handleGeneratePDF = async (report) => {
-    try {
-      await dispatch(generatePDF(report)).unwrap();
-      setNotification({
-        open: true,
-        message: 'Xuất PDF thành công',
-        severity: 'success'
-      });
-    } catch (error) {
-      setNotification({
-        open: true,
-        message: error.message || 'Có lỗi xảy ra khi xuất PDF',
-        severity: 'error'
-      });
-    }
-  };
-
-  const handleCloseNotification = () => {
-    setNotification(prev => ({ ...prev, open: false }));
-  };
-
-  const renderStatistics = () => (
-    <Grid container spacing={3} sx={{ mb: 3 }}>
-      <Grid item xs={12} sm={6} md={3}>
-        <Card sx={styles.statsCard}>
-          <Typography variant="h4" sx={styles.statsValue}>
-            {apartments?.length || 0}
-          </Typography>
-          <Typography variant="body1" sx={styles.statsLabel}>
-            Tổng số căn hộ
-          </Typography>
-        </Card>
-      </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <Card sx={styles.statsCard}>
-          <Typography variant="h4" sx={styles.statsValue}>
-            {residents?.length || 0}
-          </Typography>
-          <Typography variant="body1" sx={styles.statsLabel}>
-            Tổng số cư dân
-          </Typography>
-        </Card>
-      </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <Card sx={styles.statsCard}>
-          <Typography variant="h4" sx={styles.statsValue}>
-            {bills?.filter(bill => bill.isPaid).length || 0}
-          </Typography>
-          <Typography variant="body1" sx={styles.statsLabel}>
-            Hóa đơn đã thanh toán
-          </Typography>
-        </Card>
-      </Grid>
-      <Grid item xs={12} sm={6} md={3}>
-        <Card sx={styles.statsCard}>
-          <Typography variant="h4" sx={styles.statsValue}>
-            {tasks?.filter(task => task.status === 'Hoàn thành').length || 0}
-          </Typography>
-          <Typography variant="body1" sx={styles.statsLabel}>
-            Công việc hoàn thành
-          </Typography>
-        </Card>
-      </Grid>
-    </Grid>
-  );
-
-  if (loading || isDataLoading) {
+  if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
         <CircularProgress />
@@ -525,15 +454,24 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
         <Typography variant="h4" component="h1" gutterBottom>
           Quản lý báo cáo
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-          sx={styles.addButton}
-          disabled={isDataLoading}
-        >
-          Tạo báo cáo mới
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="contained"
+            startIcon={<PdfIcon />}
+            onClick={handleExportSummaryPDF}
+            sx={styles.addButton}
+          >
+            Xuất PDF tổng hợp
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenDialog()}
+            sx={styles.addButton}
+          >
+            Tạo báo cáo mới
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -541,8 +479,6 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
           {error}
         </Alert>
       )}
-
-      {renderStatistics()}
 
       <Card>
         <TableContainer component={Paper} sx={styles.tableContainer}>
@@ -552,19 +488,13 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
                 <TableCell>
                   <Box sx={styles.iconContainer}>
                     <DescriptionIcon />
-                    <Typography>Loại báo cáo</Typography>
+                    <Typography>Nội dung tổng hợp</Typography>
                   </Box>
                 </TableCell>
                 <TableCell>
                   <Box sx={styles.iconContainer}>
                     <PersonIcon />
                     <Typography>Người tạo</Typography>
-                  </Box>
-                </TableCell>
-                <TableCell>
-                  <Box sx={styles.iconContainer}>
-                    <DescriptionIcon />
-                    <Typography>Nội dung</Typography>
                   </Box>
                 </TableCell>
                 <TableCell>
@@ -580,41 +510,29 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
             </TableHead>
             <TableBody>
               {reports
+                .filter(report => report && typeof report === 'object' && report.content)
                 .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                 .map((report) => (
                   <TableRow key={report.reportId} sx={styles.tableRow}>
                     <TableCell>
-                      <Chip
-                        label={report.reportType}
-                        color="primary"
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell>{getEmployeeName(report.employeeId)}</TableCell>
-                    <TableCell>
                       <Typography
                         sx={{
-                          maxWidth: 300,
+                          maxWidth: 400,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
                         }}
+                        title={report.content}
                       >
-                        {report.content}
+                        {report.content || 'Không có dữ liệu'}
                       </Typography>
                     </TableCell>
+                    <TableCell>{getEmployeeName(report.employeeId)}</TableCell>
                     <TableCell>
                       {format(new Date(report.createdAt), 'dd/MM/yyyy HH:mm')}
                     </TableCell>
                     <TableCell align="right">
                       <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                        <IconButton
-                          color="primary"
-                          onClick={() => handleGeneratePDF(report)}
-                          title="Xuất PDF"
-                        >
-                          <PdfIcon />
-                        </IconButton>
                         <IconButton
                           color="primary"
                           onClick={() => handleOpenDialog(report)}
@@ -665,22 +583,6 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth sx={styles.formField}>
-                    <InputLabel>Loại báo cáo</InputLabel>
-                    <Select
-                      name="reportType"
-                      value={formData.reportType}
-                      onChange={handleInputChange}
-                      label="Loại báo cáo"
-                    >
-                      <MenuItem value="Tổng hợp">Báo cáo tổng hợp</MenuItem>
-                      <MenuItem value="Tài chính">Báo cáo tài chính</MenuItem>
-                      <MenuItem value="Cư dân">Báo cáo cư dân</MenuItem>
-                      <MenuItem value="Công việc">Báo cáo công việc</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth sx={styles.formField}>
                     <InputLabel>Người tạo</InputLabel>
                     <Select
                       name="employeeId"
@@ -701,13 +603,13 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
                   <TextField
                     fullWidth
                     multiline
-                    rows={4}
-                    label="Phân tích và đề xuất"
-                    name="content"
-                    value={formData.content}
+                    rows={3}
+                    label="Ghi chú bổ sung (không bắt buộc)"
+                    name="note"
+                    value={formData.note}
                     onChange={handleInputChange}
                     sx={styles.formField}
-                    helperText="Nhập phân tích và đề xuất của bạn về tình hình chung cư"
+                    helperText="Bạn có thể nhập ghi chú bổ sung cho báo cáo này"
                   />
                 </Grid>
               </Grid>
@@ -720,7 +622,6 @@ ${formData.content || 'Chưa có phân tích và đề xuất'}
             onClick={handleSubmit}
             variant="contained"
             color="primary"
-            disabled={isDataLoading}
             sx={styles.addButton}
           >
             {selectedReport ? 'Cập nhật' : 'Tạo báo cáo'}

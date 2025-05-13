@@ -17,7 +17,10 @@ const assignSchema = Joi.object({
 });
 
 const updateAssignmentSchema = Joi.object({
-  isOwner: Joi.boolean().optional(),
+  isOwner: Joi.boolean().required().messages({
+    'any.required': 'Trạng thái sở hữu (isOwner) là bắt buộc.',
+    'boolean.base': 'Vai trò chủ hộ phải là true hoặc false.'
+  }),
   moveInDate: Joi.date().iso().optional().messages({
     'date.format': 'Ngày chuyển vào phải theo định dạng YYYY-MM-DD.'
   }),
@@ -33,7 +36,6 @@ const setMoveOutDateSchema = Joi.object({
         'date.format': 'Ngày chuyển ra phải theo định dạng YYYY-MM-DD.'
     })
 });
-
 
 module.exports = {
   assignSchema,

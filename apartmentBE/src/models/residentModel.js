@@ -14,7 +14,52 @@ const Resident = {
         WHERE res.isDeleted = FALSE
       `;
       const [rows] = await db.query(query);
-      return rows;
+
+      // Lấy thông tin căn hộ cho từng cư dân
+      const residentsWithApartments = await Promise.all(
+        rows.map(async (resident) => {
+          const apartmentsQuery = `
+            SELECT 
+              a.apartmentId,
+              a.code as apartmentCode,
+              a.building,
+              a.floor,
+              a.area,
+              a.status,
+              a.contract,
+              ra.isOwner,
+              ra.moveInDate,
+              ra.moveOutDate,
+              ra.isDeleted as assignmentIsDeleted
+            FROM Resident_Apartment ra
+            JOIN Apartment a ON ra.apartmentId = a.apartmentId
+            WHERE ra.residentId = ? 
+              AND a.isDeleted = FALSE
+              AND ra.isDeleted = FALSE
+            ORDER BY ra.moveInDate DESC
+          `;
+          const [apartments] = await db.query(apartmentsQuery, [resident.residentId]);
+          
+          return {
+            ...resident,
+            apartments: apartments.map(apt => ({
+              apartmentId: apt.apartmentId,
+              apartmentCode: apt.apartmentCode,
+              building: apt.building,
+              floor: apt.floor,
+              area: apt.area,
+              status: apt.status,
+              contract: apt.contract,
+              isOwner: apt.isOwner,
+              moveInDate: apt.moveInDate,
+              moveOutDate: apt.moveOutDate,
+              assignmentIsDeleted: apt.assignmentIsDeleted
+            }))
+          };
+        })
+      );
+
+      return residentsWithApartments;
     } catch (error) {
       console.error('Error fetching residents:', error);
       throw error;
@@ -84,8 +129,8 @@ const Resident = {
   create: async (residentData) => {
     const {
       fullName, birthDate, gender, idNumber, phone, email, 
-      username, password, // Nhớ hash password
-      roleId // roleId cho Resident thường là cố định (ví dụ: ID 6 'Cư dân')
+      username, password,
+      roleId
     } = residentData;
     try {
       // Kiểm tra xem có bản ghi đã bị xóa mềm không
@@ -94,21 +139,28 @@ const Resident = {
         [idNumber, email, username]
       );
 
-      // Nếu có bản ghi đã bị xóa mềm, cập nhật isDeleted = FALSE và cập nhật thông tin mới
+      // Nếu có bản ghi đã bị xóa mềm, tạo mới cư dân với thông tin mới
       if (existingDeleted.length > 0) {
-        const deletedResident = existingDeleted[0];
         const [result] = await db.query(
-          `UPDATE Resident 
-           SET fullName = ?, birthDate = ?, gender = ?, phone = ?, 
-               password = ?, roleId = ?, isDeleted = FALSE, status = TRUE,
-               updatedAt = CURRENT_TIMESTAMP
-           WHERE residentId = ?`,
-          [fullName, birthDate, gender, phone, password, roleId, deletedResident.residentId]
+          'INSERT INTO Resident (fullName, birthDate, gender, idNumber, phone, email, username, password, roleId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [fullName, birthDate, gender, idNumber, phone, email, username, password, roleId]
         );
-        return { id: deletedResident.residentId, ...residentData };
+        return { id: result.insertId, ...residentData };
       }
 
-      // Nếu không có bản ghi đã bị xóa mềm, tạo mới
+      // Kiểm tra xem có bản ghi chưa bị xóa không
+      const [existingActive] = await db.query(
+        'SELECT * FROM Resident WHERE (idNumber = ? OR email = ? OR username = ?) AND isDeleted = FALSE',
+        [idNumber, email, username]
+      );
+
+      if (existingActive.length > 0) {
+        if (existingActive[0].idNumber === idNumber) throw new Error('ID number already exists.');
+        if (existingActive[0].email === email) throw new Error('Email already exists.');
+        if (existingActive[0].username === username) throw new Error('Username already exists.');
+      }
+
+      // Nếu không có bản ghi nào tồn tại, tạo mới
       const [result] = await db.query(
         'INSERT INTO Resident (fullName, birthDate, gender, idNumber, phone, email, username, password, roleId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [fullName, birthDate, gender, idNumber, phone, email, username, password, roleId]

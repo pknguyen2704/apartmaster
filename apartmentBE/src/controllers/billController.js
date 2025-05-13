@@ -16,6 +16,24 @@ const BillController = {
   calculateBill: async (req, res, next) => {
     try {
       const { apartmentId, month } = req.body;
+
+      // Validate input
+      if (!apartmentId || !month) {
+        return res.status(400).json({
+          success: false,
+          message: 'Vui lòng cung cấp đầy đủ thông tin căn hộ và tháng'
+        });
+      }
+
+      // Validate month format (YYYY-MM)
+      const monthRegex = /^\d{4}-\d{2}$/;
+      if (!monthRegex.test(month)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Định dạng tháng không hợp lệ. Vui lòng sử dụng định dạng YYYY-MM'
+        });
+      }
+
       const result = await BillService.calculateBill(apartmentId, month);
       res.json({
         success: true,
@@ -23,7 +41,11 @@ const BillController = {
         data: result
       });
     } catch (error) {
-      next(error);
+      console.error('Error in calculateBill controller:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Có lỗi xảy ra khi tính hóa đơn'
+      });
     }
   },
 

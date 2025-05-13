@@ -1,6 +1,8 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import Chart from 'chart.js/auto';
 
 // Async thunks
 export const fetchReports = createAsyncThunk(
@@ -20,6 +22,23 @@ export const fetchReports = createAsyncThunk(
   }
 );
 
+export const fetchDashboardData = createAsyncThunk(
+  'reports/fetchDashboardData',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axios.get('/api/reports/dashboard');
+      return response.data.data;
+    } catch (error) {
+      console.error('Fetch dashboard data error:', error.response?.data);
+      return rejectWithValue(
+        error.response?.data?.message || 
+        error.response?.data?.error || 
+        'Có lỗi xảy ra khi tải dữ liệu dashboard'
+      );
+    }
+  }
+);
+
 export const createReport = createAsyncThunk(
   'reports/createReport',
   async (reportData, { rejectWithValue }) => {
@@ -28,15 +47,9 @@ export const createReport = createAsyncThunk(
       if (!reportData.employeeId) {
         throw new Error('Vui lòng chọn người tạo báo cáo');
       }
-      if (!reportData.reportType) {
-        throw new Error('Vui lòng chọn loại báo cáo');
-      }
-      if (!reportData.content) {
-        throw new Error('Vui lòng nhập nội dung báo cáo');
-      }
-
+      // Không kiểm tra reportType, title, content nữa
       const response = await axios.post('/api/reports', reportData);
-      return response.data.data || response.data;
+      return response.data.data;
     } catch (error) {
       console.error('Create report error:', error.response?.data || error);
       return rejectWithValue(
@@ -53,19 +66,12 @@ export const updateReport = createAsyncThunk(
   'reports/updateReport',
   async ({ id, data }, { rejectWithValue }) => {
     try {
-      // Validate required fields
       if (!data.employeeId) {
         throw new Error('Vui lòng chọn người tạo báo cáo');
       }
-      if (!data.reportType) {
-        throw new Error('Vui lòng chọn loại báo cáo');
-      }
-      if (!data.content) {
-        throw new Error('Vui lòng nhập nội dung báo cáo');
-      }
-
+      // Không kiểm tra reportType, title, content nữa
       const response = await axios.put(`/api/reports/${id}`, data);
-      return response.data.data || response.data;
+      return response.data.data;
     } catch (error) {
       console.error('Update report error:', error.response?.data || error);
       return rejectWithValue(
@@ -83,7 +89,7 @@ export const deleteReport = createAsyncThunk(
   async (id, { rejectWithValue }) => {
     try {
       const response = await axios.delete(`/api/reports/${id}`);
-      return response.data.data || response.data;
+      return response.data.data;
     } catch (error) {
       console.error('Delete report error:', error.response?.data || error);
       return rejectWithValue(
@@ -98,27 +104,129 @@ export const deleteReport = createAsyncThunk(
 
 export const generatePDF = createAsyncThunk(
   'reports/generatePDF',
-  async (report, { rejectWithValue }) => {
+  async (data, { rejectWithValue }) => {
     try {
       const doc = new jsPDF();
-      
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 20;
+      const contentWidth = pageWidth - (margin * 2);
+
       // Add title
-      doc.setFontSize(16);
-      doc.text('BÁO CÁO CHUNG CƯ', 105, 20, { align: 'center' });
-      
-      // Add report type
-      doc.setFontSize(14);
-      doc.text(report.reportType, 105, 30, { align: 'center' });
-      
-      // Add date
+      doc.setFontSize(20);
+      doc.text('Báo cáo tổng hợp', pageWidth / 2, 20, { align: 'center' });
       doc.setFontSize(12);
-      doc.text(`Ngày tạo: ${new Date(report.createdAt).toLocaleDateString('vi-VN')}`, 20, 40);
-      
-      // Add content
-      doc.setFontSize(11);
-      const splitContent = doc.splitTextToSize(report.content, 170);
-      doc.text(splitContent, 20, 50);
-      
+      doc.text(`Ngày tạo: ${new Date().toLocaleDateString('vi-VN')}`, pageWidth / 2, 30, { align: 'center' });
+
+      let yPosition = 40;
+
+      // Add summary statistics
+      doc.setFontSize(16);
+      doc.text('Thống kê tổng quan', margin, yPosition);
+      yPosition += 10;
+
+      doc.setFontSize(12);
+      const stats = [
+        ['Tổng số căn hộ', data.counts.apartments],
+        ['Tổng số cư dân', data.counts.residents],
+        ['Tổng số nhân viên', data.counts.employees],
+        ['Tổng số hóa đơn', data.counts.bills],
+        ['Tổng số dịch vụ', data.counts.services],
+        ['Tổng số công việc', data.counts.tasks],
+      ];
+
+      autoTable(doc, {
+        startY: yPosition,
+        head: [['Chỉ số', 'Giá trị']],
+        body: stats,
+        theme: 'grid',
+        headStyles: { fillColor: [25, 118, 210] },
+      });
+
+      yPosition = doc.lastAutoTable.finalY + 20;
+
+      // Add financial data
+      doc.setFontSize(16);
+      doc.text('Thông tin tài chính', margin, yPosition);
+      yPosition += 10;
+
+      const financialData = [
+        ['Tổng doanh thu đã thu', `${data.financial.totalPaid.toLocaleString('vi-VN')}đ`],
+        ['Tổng doanh thu chưa thu', `${data.financial.totalUnpaid.toLocaleString('vi-VN')}đ`],
+        ['Số hóa đơn đã thanh toán', data.financial.paidCount],
+        ['Số hóa đơn chưa thanh toán', data.financial.unpaidCount],
+      ];
+
+      autoTable(doc, {
+        startY: yPosition,
+        head: [['Chỉ số', 'Giá trị']],
+        body: financialData,
+        theme: 'grid',
+        headStyles: { fillColor: [25, 118, 210] },
+      });
+
+      yPosition = doc.lastAutoTable.finalY + 20;
+
+      // Add charts
+      if (data.charts) {
+        // Monthly Revenue Chart
+        doc.setFontSize(16);
+        doc.text('Doanh thu theo tháng', margin, yPosition);
+        yPosition += 10;
+
+        const monthlyData = data.charts.monthlyRevenue.map(item => [
+          item.month,
+          `${item.revenue.toLocaleString('vi-VN')}đ`
+        ]);
+
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['Tháng', 'Doanh thu']],
+          body: monthlyData,
+          theme: 'grid',
+          headStyles: { fillColor: [25, 118, 210] },
+        });
+
+        yPosition = doc.lastAutoTable.finalY + 20;
+
+        // Apartment Occupancy Chart
+        doc.setFontSize(16);
+        doc.text('Tình trạng căn hộ', margin, yPosition);
+        yPosition += 10;
+
+        const occupancyData = data.charts.occupancyData.map(item => [
+          item.status,
+          item.count
+        ]);
+
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['Trạng thái', 'Số lượng']],
+          body: occupancyData,
+          theme: 'grid',
+          headStyles: { fillColor: [25, 118, 210] },
+        });
+
+        yPosition = doc.lastAutoTable.finalY + 20;
+
+        // Task Status Chart
+        doc.setFontSize(16);
+        doc.text('Tình trạng công việc', margin, yPosition);
+        yPosition += 10;
+
+        const taskData = data.charts.taskData.map(item => [
+          item.status,
+          item.count
+        ]);
+
+        autoTable(doc, {
+          startY: yPosition,
+          head: [['Trạng thái', 'Số lượng']],
+          body: taskData,
+          theme: 'grid',
+          headStyles: { fillColor: [25, 118, 210] },
+        });
+      }
+
       // Add footer
       const pageCount = doc.internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
@@ -131,9 +239,9 @@ export const generatePDF = createAsyncThunk(
           { align: 'center' }
         );
       }
-      
+
       // Save the PDF
-      doc.save(`bao-cao-${report.reportId}.pdf`);
+      doc.save(`bao-cao-${new Date().toISOString().split('T')[0]}.pdf`);
       return true;
     } catch (error) {
       console.error('Generate PDF error:', error);
@@ -144,6 +252,7 @@ export const generatePDF = createAsyncThunk(
 
 const initialState = {
   items: [],
+  dashboardData: null,
   loading: false,
   error: null,
   success: false,
@@ -177,6 +286,21 @@ const reportSlice = createSlice({
         state.loading = false;
         state.error = action.payload;
       })
+
+      // Fetch dashboard data
+      .addCase(fetchDashboardData.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchDashboardData.fulfilled, (state, action) => {
+        state.loading = false;
+        state.dashboardData = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchDashboardData.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
       
       // Create report
       .addCase(createReport.pending, (state) => {
@@ -186,7 +310,8 @@ const reportSlice = createSlice({
       })
       .addCase(createReport.fulfilled, (state, action) => {
         state.loading = false;
-        state.items.push(action.payload);
+        state.items.push(action.payload.report);
+        state.dashboardData = action.payload.dashboardData;
         state.success = true;
         state.error = null;
       })
@@ -204,10 +329,11 @@ const reportSlice = createSlice({
       })
       .addCase(updateReport.fulfilled, (state, action) => {
         state.loading = false;
-        const index = state.items.findIndex(item => item.reportId === action.payload.reportId);
+        const index = state.items.findIndex(item => item.reportId === action.payload.report.reportId);
         if (index !== -1) {
-          state.items[index] = action.payload;
+          state.items[index] = action.payload.report;
         }
+        state.dashboardData = action.payload.dashboardData;
         state.success = true;
         state.error = null;
       })
@@ -225,7 +351,8 @@ const reportSlice = createSlice({
       })
       .addCase(deleteReport.fulfilled, (state, action) => {
         state.loading = false;
-        state.items = state.items.filter(item => item.reportId !== action.payload.reportId);
+        const deletedId = action.meta.arg;
+        state.items = state.items.filter(item => item.reportId !== deletedId);
         state.success = true;
         state.error = null;
       })

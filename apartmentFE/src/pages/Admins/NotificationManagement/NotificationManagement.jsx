@@ -418,28 +418,22 @@ const NotificationManagement = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell sx={styles.tableCell}>Tiêu đề</TableCell>
-              <TableCell sx={styles.tableCell}>Nội dung</TableCell>
-              <TableCell sx={styles.tableCell}>Trạng thái</TableCell>
-              <TableCell sx={styles.tableCell}>Người tạo</TableCell>
-              <TableCell sx={styles.tableCell}>Ngày tạo</TableCell>
-              <TableCell sx={styles.tableCell}>Thao tác</TableCell>
+              <TableCell sx={styles.tableCell}><NotificationsIcon sx={{ verticalAlign: 'middle', mr: 1 }} />Tiêu đề</TableCell>
+              <TableCell sx={styles.tableCell}><DescriptionIcon sx={{ verticalAlign: 'middle', mr: 1 }} />Nội dung</TableCell>
+              <TableCell sx={styles.tableCell}><FilterListIcon sx={{ verticalAlign: 'middle', mr: 1 }} />Trạng thái</TableCell>
+              <TableCell sx={styles.tableCell}><PersonIcon sx={{ verticalAlign: 'middle', mr: 1 }} />Người tạo</TableCell>
+              <TableCell sx={styles.tableCell}><ScheduleIcon sx={{ verticalAlign: 'middle', mr: 1 }} />Ngày tạo</TableCell>
+              <TableCell sx={styles.tableCell}><EditIcon sx={{ verticalAlign: 'middle', mr: 1 }} />Thao tác</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {paginatedNotifications.map((notification) => (
               <TableRow key={notification.notificationId} sx={styles.tableRow}>
                 <TableCell sx={styles.tableCell}>
-                  <Box sx={styles.iconContainer}>
-                    <NotificationsIcon />
-                    <Typography>{notification.title}</Typography>
-                  </Box>
+                  <Typography>{notification.title}</Typography>
                 </TableCell>
                 <TableCell sx={styles.tableCell}>
-                  <Box sx={styles.iconContainer}>
-                    <DescriptionIcon />
-                    <Typography>{notification.content}</Typography>
-                  </Box>
+                  <Typography>{notification.content}</Typography>
                 </TableCell>
                 <TableCell sx={styles.tableCell}>
                   <Chip
@@ -449,16 +443,10 @@ const NotificationManagement = () => {
                   />
                 </TableCell>
                 <TableCell sx={styles.tableCell}>
-                  <Box sx={styles.iconContainer}>
-                    <PersonIcon />
-                    <Typography>{notification.employeeName}</Typography>
-                  </Box>
+                  <Typography>{notification.employeeName}</Typography>
                 </TableCell>
                 <TableCell sx={styles.tableCell}>
-                  <Box sx={styles.iconContainer}>
-                    <ScheduleIcon />
-                    <Typography>{formatDate(notification.createdAt)}</Typography>
-                  </Box>
+                  <Typography>{formatDate(notification.createdAt)}</Typography>
                 </TableCell>
                 <TableCell sx={styles.tableCell}>
                   <Box sx={{ display: 'flex', gap: 1 }}>

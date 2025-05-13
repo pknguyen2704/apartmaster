@@ -21,32 +21,37 @@ const residentBaseSchema = {
   email: Joi.string().email().optional().allow(null, '').messages({
     'string.email': 'Email không hợp lệ.'
   }),
-  username: Joi.string().alphanum().min(3).max(30).required().messages({
-    'string.alphanum': 'Tên đăng nhập chỉ được chứa chữ và số.',
-    'string.min': 'Tên đăng nhập phải có ít nhất {#limit} ký tự.',
-    'any.required': 'Tên đăng nhập là bắt buộc.'
+  username: Joi.string().optional().allow(null, '').messages({
+    'string.base': 'Tên đăng nhập phải là chuỗi.'
+  }),
+  password: Joi.string().optional().allow(null, '').messages({
+    'string.base': 'Mật khẩu phải là chuỗi.'
   }),
   status: Joi.number().integer().optional(),
-  roleId: Joi.number().integer().positive().required().messages({
-      'any.required': 'ID Vai trò là bắt buộc.',
-      'number.base': 'ID Vai trò phải là số.',
+  roleId: Joi.number().integer().positive().optional().messages({
+    'number.base': 'ID Vai trò phải là số.',
+  }),
+  apartmentCode: Joi.string().optional().allow(null, '').messages({
+    'string.base': 'Mã căn hộ phải là chuỗi.'
+  }),
+  isOwner: Joi.boolean().optional().allow(null).messages({
+    'boolean.base': 'Vai trò chủ hộ phải là true hoặc false.'
   })
 };
 
 const createResidentSchema = Joi.object({
-  ...residentBaseSchema,
-  password: Joi.string().min(6).required().messages({
-    'string.min': 'Mật khẩu phải có ít nhất {#limit} ký tự.',
-    'any.required': 'Mật khẩu là bắt buộc.'
-  })
+  ...residentBaseSchema
+}).options({ 
+  stripUnknown: true,
+  abortEarly: false // Return all validation errors
 });
 
 const updateResidentSchema = Joi.object({
-  ...residentBaseSchema,
-  password: Joi.string().min(6).optional().allow(null, '').messages({
-    'string.min': 'Mật khẩu phải có ít nhất {#limit} ký tự.'
-  })
-}).min(1); // Ít nhất một trường để cập nhật
+  ...residentBaseSchema
+}).min(1).options({ 
+  stripUnknown: true,
+  abortEarly: false // Return all validation errors
+});
 
 module.exports = {
   createResidentSchema,

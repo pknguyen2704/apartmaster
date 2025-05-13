@@ -76,7 +76,7 @@ function App() {
         <Route path="reports" element={<ReportManagement />} />
       </Route>
 
-      {/* Client routes
+      Client routes
       <Route
         path="/client/*"
         element={
@@ -84,10 +84,10 @@ function App() {
         }
       >
         <Route index element={<Navigate to="dashboard" />} />
-        {/* Add client routes here */}
-      {/* </Route> */} 
+        Add client routes here
+      </Route> 
 
-      {/* Redirect root to login */}
+      /* Redirect root to login
       <Route path="/" element={<Navigate to="/auth/login" />} />
     </Routes>
   );

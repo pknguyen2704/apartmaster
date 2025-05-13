@@ -29,4 +29,7 @@ router.get('/apartments/:apartmentId/residents', RAController.getResidentsByApar
 // GET /api/resident-apartments/residents/:residentId/apartments/:apartmentId
 router.get('/residents/:residentId/apartments/:apartmentId', RAController.getSpecificAssignment);
 
+// Xóa mềm quan hệ cư dân-căn hộ
+router.delete('/residents/:residentId/apartments/:apartmentId', RAController.removeRelationship);
+
 module.exports = router; 

@@ -20,6 +20,7 @@ const reportRoutes = require('./reportRoutes');
 const authRoutes = require('./authRoutes');
 const rolePermissionRoutes = require('./rolePermissionRoutes');
 const billRoutes = require('./billRoutes');
+const feeApartmentRoutes = require('./feeApartmentRoutes');
 
 
 const router = express.Router();
@@ -46,6 +47,7 @@ router.use('/reports', reportRoutes);
 router.use('/auth', authRoutes);
 router.use('/role-permissions', rolePermissionRoutes);
 router.use('/bills', billRoutes);
+router.use('/fee-apartments', feeApartmentRoutes);
 // router.use('/users', userRoutes);
 
 module.exports = router; 

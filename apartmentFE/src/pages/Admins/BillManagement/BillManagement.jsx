@@ -207,7 +207,7 @@ const BillManagement = () => {
   const [selectedBill, setSelectedBill] = useState(null);
   const [formData, setFormData] = useState({
     apartmentId: '',
-    month: new Date()
+    month: new Date(),
   });
   const [paymentData, setPaymentData] = useState({
     isPaid: false,
@@ -290,7 +290,7 @@ const BillManagement = () => {
     setOpenDialog(false);
     setFormData({
       apartmentId: '',
-      month: new Date()
+      month: new Date(),
     });
     setApartmentSearch('');
     setSelectedApartment(null);
@@ -348,15 +348,14 @@ const BillManagement = () => {
         });
         return;
       }
-
       const data = {
         apartmentId: selectedApartment.apartmentId,
-        month: format(formData.month, 'yyyy-MM')
+        month: format(formData.month, 'yyyy-MM'),
+        isPaid: false,
+        paymentMethod: ''
       };
-
-      // Gọi API tính hóa đơn
-      const response = await dispatch(calculateBill(data)).unwrap();
-      
+      await dispatch(calculateBill(data)).unwrap();
+      await dispatch(fetchBills());
       setNotification({
         open: true,
         message: 'Tính hóa đơn thành công!',
@@ -375,16 +374,14 @@ const BillManagement = () => {
   const handlePaymentSubmit = async () => {
     try {
       if (selectedBill) {
-        const paymentData = {
-          isPaid: paymentData.isPaid,
-          paymentMethod: paymentData.paymentMethod
-        };
-        
         await dispatch(updateBillPayment({
           billId: selectedBill.billId,
-          paymentData
+          paymentData: {
+            isPaid: paymentData.isPaid,
+            paymentMethod: paymentData.paymentMethod
+          }
         })).unwrap();
-
+        await dispatch(fetchBills());
         setNotification({
           open: true,
           message: 'Cập nhật trạng thái thanh toán thành công!',
@@ -447,10 +444,30 @@ const BillManagement = () => {
       setApartmentError('');
       const response = await axios.get(`/api/apartments/code/${apartmentSearch}`);
       if (response.data.success) {
-        setSelectedApartment(response.data.data);
+        const apartment = response.data.data;
+        
+        // Lấy thông tin phí của căn hộ
+        const feeResponse = await axios.get(`/api/fee-apartments/${apartment.apartmentId}`);
+        if (feeResponse.data.success) {
+          const feeDetails = feeResponse.data.data.map(fee => ({
+            feeId: fee.feeId,
+            feeName: fee.feeName,
+            unitPrice: fee.unitPrice,
+            weight: fee.weight,
+            total: fee.unitPrice * fee.weight
+          }));
+          
+          setSelectedApartment({
+            ...apartment,
+            feeDetails
+          });
+        } else {
+          setSelectedApartment(apartment);
+        }
+        
         setFormData(prev => ({
           ...prev,
-          apartmentId: response.data.data.apartmentId
+          apartmentId: apartment.apartmentId
         }));
       }
     } catch (error) {
@@ -508,10 +525,10 @@ const BillManagement = () => {
         {details.map((fee, index) => (
           <Box key={index} sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
             <Typography variant="body2">
-              {fee.feeName}: {fee.amount} x {fee.price.toLocaleString('vi-VN')}đ
+              {fee.feeName}: {fee.weight} x {formatCurrency(fee.unitPrice)}
             </Typography>
             <Typography variant="body2" fontWeight="bold">
-              {fee.total.toLocaleString('vi-VN')}đ
+              {formatCurrency(fee.total)}
             </Typography>
           </Box>
         ))}
@@ -598,6 +615,48 @@ const BillManagement = () => {
               </Grid>
             </Grid>
           </Box>
+
+          {selectedApartment && formData.month && (
+            <Box sx={styles.formSection}>
+              <Typography variant="h6" sx={styles.formSectionTitle}>
+                Chi tiết hóa đơn
+              </Typography>
+              <TableContainer component={Paper} sx={{ mb: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Tên phí</TableCell>
+                      <TableCell align="right">Đơn giá</TableCell>
+                      <TableCell align="right">Hệ số</TableCell>
+                      <TableCell align="right">Thành tiền</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {selectedApartment.feeDetails?.map((fee, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{fee.feeName}</TableCell>
+                        <TableCell align="right">{formatCurrency(fee.unitPrice)}</TableCell>
+                        <TableCell align="right">{fee.weight}</TableCell>
+                        <TableCell align="right">{formatCurrency(fee.total)}</TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow>
+                      <TableCell colSpan={3} align="right">
+                        <Typography variant="subtitle1" fontWeight="bold">
+                          Tổng cộng:
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="subtitle1" fontWeight="bold" color="primary">
+                          {formatCurrency(selectedApartment.feeDetails?.reduce((sum, fee) => sum + fee.total, 0) || 0)}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
@@ -616,7 +675,7 @@ const BillManagement = () => {
           variant="contained"
           color="primary"
           sx={styles.addButton}
-          disabled={!selectedApartment}
+          disabled={!selectedApartment || !formData.month}
         >
           Tính hóa đơn
         </Button>
@@ -804,15 +863,12 @@ const BillManagement = () => {
                   </TableHead>
                   <TableBody>
                     {paginatedBills.map((bill) => (
-                      <TableRow key={bill.billId} sx={styles.tableRow}>
+                      <TableRow key={`${bill.billId}-${bill.apartmentId}-${bill.month}`} sx={styles.tableRow}>
                         <TableCell sx={styles.tableCell}>
                           <Typography>{bill.apartmentCode}</Typography>
                         </TableCell>
                         <TableCell sx={styles.tableCell}>
                           <Typography>{bill.month}</Typography>
-                        </TableCell>
-                        <TableCell sx={styles.tableCell}>
-                          {renderFeeDetails(bill.feeDetails)}
                         </TableCell>
                         <TableCell sx={styles.tableCell}>
                           <Typography>{formatCurrency(bill.money)}</Typography>
@@ -825,7 +881,7 @@ const BillManagement = () => {
                           />
                         </TableCell>
                         <TableCell sx={styles.tableCell}>
-                          <Typography>{bill.paymentMethod || '-'}</Typography>
+                          <Typography>{bill.isPaid ? (bill.paymentMethod || '-') : '-'}</Typography>
                         </TableCell>
                         <TableCell sx={styles.tableCell} align="right">
                           <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>

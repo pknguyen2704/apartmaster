@@ -48,6 +48,7 @@ import {
   Badge as BadgeIcon,
   CalendarToday as CalendarIcon,
   Assignment as AssignmentIcon,
+  Remove as RemoveIcon,
 } from '@mui/icons-material';
 import {
   fetchResidents,
@@ -234,10 +235,30 @@ const ResidentManagement = () => {
   const [apartmentSearchResult, setApartmentSearchResult] = useState(null);
   const [apartmentSearchLoading, setApartmentSearchLoading] = useState(false);
   const [apartmentSearchError, setApartmentSearchError] = useState(null);
+  const [existingOwner, setExistingOwner] = useState(false);
+  const [residentApartments, setResidentApartments] = useState([]);
+
+  // Add new state for showing/hiding add apartment form
+  const [showAddApartmentForm, setShowAddApartmentForm] = useState(false);
 
   useEffect(() => {
     dispatch(fetchResidents());
   }, [dispatch]);
+
+  // Fetch resident's apartments when editing
+  useEffect(() => {
+    if (selectedResident) {
+      const fetchResidentApartments = async () => {
+        try {
+          const response = await axios.get(`/api/resident-apartments/residents/${selectedResident.residentId}/apartments`);
+          setResidentApartments(response.data.data || []);
+        } catch (error) {
+          console.error('Error fetching resident apartments:', error);
+        }
+      };
+      fetchResidentApartments();
+    }
+  }, [selectedResident]);
 
   // Filter residents based on search query and filters
   const filteredResidents = residents.filter(resident => {
@@ -402,11 +423,14 @@ const ResidentManagement = () => {
         email: formData.email ? formData.email.trim() : null,
         username: formData.idNumber.trim(), // Username mặc định là idNumber
         password: formData.idNumber.trim(), // Password mặc định là idNumber
-        status: formData.status ? 1 : 0,
+        status: 1,
         roleId: 6, // Role mặc định cho cư dân
-        apartmentCode: formData.apartmentCode, // Thêm mã căn hộ
-        isOwner: formData.isOwner ? 1 : 0 // Thêm trạng thái chủ hộ
+        apartmentCode: formData.apartmentCode || null,
+        isOwner: formData.isOwner === true // Chuyển đổi thành boolean
       };
+
+      // Log data for debugging
+      console.log('Sending resident data:', residentData);
 
       let result;
       if (selectedResident) {
@@ -431,20 +455,19 @@ const ResidentManagement = () => {
       console.error('Error saving resident:', error);
       let errorMessage = 'Có lỗi xảy ra khi lưu thông tin cư dân';
       
-      if (error.response?.status === 409 || 
-          (error.message && error.message.includes('already exists'))) {
-        errorMessage = 'Cư dân đã tồn tại trong hệ thống';
-        setErrorDialog({
-          open: true,
-          message: errorMessage
-        });
-      } else {
-        setNotification({
-          open: true,
-          message: errorMessage,
-          severity: 'error'
-        });
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors) {
+        errorMessage = error.response.data.errors.map(err => err.message).join(', ');
+      } else if (error.message) {
+        errorMessage = error.message;
       }
+
+      setNotification({
+        open: true,
+        message: errorMessage,
+        severity: 'error'
+      });
     }
   };
 
@@ -484,16 +507,31 @@ const ResidentManagement = () => {
   };
 
   const handleApartmentCodeChange = async (e) => {
-    const code = e.target.value;
-    setFormData(prev => ({ ...prev, apartmentCode: code }));
+    const code = e.target.value.trim();
+    setFormData(prev => ({ ...prev, newApartmentCode: code }));
     
     if (code.length > 0) {
       setApartmentSearchLoading(true);
       setApartmentSearchError(null);
+      setExistingOwner(false);
       try {
+        // Check if apartment exists
         const response = await axios.get(`/api/apartments/code/${code}`);
-        setApartmentSearchResult(response.data.data);
+        const apartment = response.data.data;
+        setApartmentSearchResult(apartment);
+
+        // Check if apartment has an owner
+        const ownerResponse = await axios.get(`/api/resident-apartments/apartments/${apartment.apartmentId}/residents`);
+        const residents = ownerResponse.data.data || [];
+        const hasOwner = residents.some(r => r.isOwner === 1 && !r.assignmentIsDeleted);
+        setExistingOwner(hasOwner);
+
+        // If apartment has owner, disable owner option
+        if (hasOwner) {
+          setFormData(prev => ({ ...prev, newIsOwner: false }));
+        }
       } catch (error) {
+        console.error('Error searching apartment:', error);
         setApartmentSearchError('Không tìm thấy căn hộ với mã này');
         setApartmentSearchResult(null);
       } finally {
@@ -502,6 +540,115 @@ const ResidentManagement = () => {
     } else {
       setApartmentSearchResult(null);
       setApartmentSearchError(null);
+      setExistingOwner(false);
+    }
+  };
+
+  const handleUpdateApartmentRole = async (apartmentId, isOwner) => {
+    try {
+      console.log('Updating apartment role:', {
+        residentId: selectedResident.residentId,
+        apartmentId,
+        isOwner
+      });
+
+      await axios.put(`/api/resident-apartments/residents/${selectedResident.residentId}/apartments/${apartmentId}`, {
+        isOwner: isOwner
+      });
+      
+      // Refresh resident's apartments
+      const response = await axios.get(`/api/resident-apartments/residents/${selectedResident.residentId}/apartments`);
+      setResidentApartments(response.data.data || []);
+      
+      setNotification({
+        open: true,
+        message: 'Cập nhật vai trò thành công!',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error updating apartment role:', error.response?.data || error);
+      setNotification({
+        open: true,
+        message: error.response?.data?.message || 'Có lỗi xảy ra khi cập nhật vai trò',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleAddNewApartment = async () => {
+    try {
+      if (!apartmentSearchResult) {
+        setNotification({
+          open: true,
+          message: 'Vui lòng chọn một căn hộ hợp lệ',
+          severity: 'error'
+        });
+        return;
+      }
+
+      console.log('Adding new apartment:', {
+        residentId: selectedResident.residentId,
+        apartmentId: apartmentSearchResult.apartmentId,
+        isOwner: formData.newIsOwner
+      });
+
+      await axios.post(`/api/resident-apartments`, {
+        residentId: selectedResident.residentId,
+        apartmentId: apartmentSearchResult.apartmentId,
+        isOwner: formData.newIsOwner,
+        moveInDate: new Date().toISOString().split('T')[0]
+      });
+
+      // Refresh resident's apartments
+      const response = await axios.get(`/api/resident-apartments/residents/${selectedResident.residentId}/apartments`);
+      setResidentApartments(response.data.data || []);
+
+      // Clear form and hide it
+      setFormData(prev => ({
+        ...prev,
+        newApartmentCode: '',
+        newIsOwner: false
+      }));
+      setApartmentSearchResult(null);
+      setApartmentSearchError(null);
+      setExistingOwner(false);
+      setShowAddApartmentForm(false);
+
+      setNotification({
+        open: true,
+        message: 'Thêm căn hộ thành công!',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error adding new apartment:', error.response?.data || error);
+      setNotification({
+        open: true,
+        message: error.response?.data?.message || 'Có lỗi xảy ra khi thêm căn hộ',
+        severity: 'error'
+      });
+    }
+  };
+
+  const handleRemoveApartment = async (apartmentId) => {
+    try {
+      await axios.delete(`/api/resident-apartments/residents/${selectedResident.residentId}/apartments/${apartmentId}`);
+      
+      // Refresh resident's apartments
+      const response = await axios.get(`/api/resident-apartments/residents/${selectedResident.residentId}/apartments`);
+      setResidentApartments(response.data.data || []);
+      
+      setNotification({
+        open: true,
+        message: 'Xóa quan hệ căn hộ thành công!',
+        severity: 'success'
+      });
+    } catch (error) {
+      console.error('Error removing apartment:', error.response?.data || error);
+      setNotification({
+        open: true,
+        message: error.response?.data?.message || 'Có lỗi xảy ra khi xóa quan hệ căn hộ',
+        severity: 'error'
+      });
     }
   };
 
@@ -833,46 +980,161 @@ const ResidentManagement = () => {
               <Typography variant="h6" sx={styles.formSectionTitle}>
                 Thông tin căn hộ
               </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Mã căn hộ"
-                    name="apartmentCode"
-                    value={formData.apartmentCode}
-                    onChange={handleApartmentCodeChange}
-                    sx={styles.formField}
-                    helperText={
-                      apartmentSearchLoading 
-                        ? "Đang tìm kiếm..." 
-                        : apartmentSearchError 
-                        ? apartmentSearchError 
-                        : apartmentSearchResult 
-                        ? `Tìm thấy căn hộ: ${apartmentSearchResult.building} - Tầng ${apartmentSearchResult.floor}`
-                        : "Nhập mã căn hộ để tìm kiếm"
-                    }
-                    error={!!apartmentSearchError}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <FormControl fullWidth sx={styles.formField}>
-                    <InputLabel>Vai trò</InputLabel>
-                    <Select
-                      name="isOwner"
-                      value={formData.isOwner}
-                      onChange={(e) => setFormData(prev => ({
-                        ...prev,
-                        isOwner: e.target.value
-                      }))}
-                      label="Vai trò"
-                      disabled={!apartmentSearchResult}
+              {selectedResident ? (
+                // Edit mode - show existing apartments and add new apartment form
+                <Box>
+                  {residentApartments.length > 0 ? (
+                    residentApartments.map((apt) => (
+                      <Box key={apt.apartmentId} sx={{ mb: 2, p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="subtitle1">
+                            {apt.apartmentCode} - {apt.building} - Tầng {apt.floor}
+                          </Typography>
+                          <IconButton 
+                            color="error" 
+                            onClick={() => handleRemoveApartment(apt.apartmentId)}
+                            size="small"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Box>
+                        <FormControl fullWidth sx={{ mt: 1 }}>
+                          <InputLabel>Vai trò</InputLabel>
+                          <Select
+                            value={apt.isOwner ? 1 : 0}
+                            onChange={(e) => handleUpdateApartmentRole(apt.apartmentId, e.target.value === 1)}
+                            label="Vai trò"
+                          >
+                            <MenuItem value={1}>Chủ hộ</MenuItem>
+                            <MenuItem value={0}>Cư dân</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography color="text.secondary">
+                      Cư dân chưa được gán vào căn hộ nào
+                    </Typography>
+                  )}
+
+                  {/* Add new apartment button */}
+                  <Box sx={{ mt: 2 }}>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      onClick={() => setShowAddApartmentForm(!showAddApartmentForm)}
+                      startIcon={showAddApartmentForm ? <RemoveIcon /> : <AddIcon />}
+                      fullWidth
                     >
-                      <MenuItem value={false}>Cư dân</MenuItem>
-                      <MenuItem value={true}>Chủ hộ</MenuItem>
-                    </Select>
-                  </FormControl>
+                      {showAddApartmentForm ? 'Hủy thêm căn hộ' : 'Thêm căn hộ mới'}
+                    </Button>
+                  </Box>
+
+                  {/* Add new apartment form */}
+                  {showAddApartmentForm && (
+                    <Box sx={{ mt: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+                      <Typography variant="h6" sx={{ mb: 2 }}>Thêm căn hộ mới</Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                          <TextField
+                            fullWidth
+                            label="Mã căn hộ"
+                            name="newApartmentCode"
+                            value={formData.newApartmentCode || ''}
+                            onChange={handleApartmentCodeChange}
+                            sx={styles.formField}
+                            helperText={
+                              apartmentSearchLoading 
+                                ? "Đang tìm kiếm..." 
+                                : apartmentSearchError 
+                                ? apartmentSearchError 
+                                : apartmentSearchResult 
+                                ? `Tìm thấy căn hộ: ${apartmentSearchResult.building} - Tầng ${apartmentSearchResult.floor}`
+                                : "Nhập mã căn hộ để tìm kiếm"
+                            }
+                            error={!!apartmentSearchError}
+                          />
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                          <FormControl fullWidth sx={styles.formField}>
+                            <InputLabel>Vai trò</InputLabel>
+                            <Select
+                              name="newIsOwner"
+                              value={formData.newIsOwner || false}
+                              onChange={(e) => setFormData(prev => ({
+                                ...prev,
+                                newIsOwner: e.target.value
+                              }))}
+                              label="Vai trò"
+                              disabled={!apartmentSearchResult || existingOwner}
+                            >
+                              <MenuItem value={false}>Cư dân</MenuItem>
+                              <MenuItem value={true} disabled={existingOwner}>
+                                Chủ hộ {existingOwner && "(Đã có chủ hộ)"}
+                              </MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={handleAddNewApartment}
+                            disabled={!apartmentSearchResult}
+                            fullWidth
+                          >
+                            Thêm căn hộ
+                          </Button>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )}
+                </Box>
+              ) : (
+                // Create mode - show apartment assignment form
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Mã căn hộ"
+                      name="apartmentCode"
+                      value={formData.apartmentCode}
+                      onChange={handleApartmentCodeChange}
+                      sx={styles.formField}
+                      helperText={
+                        apartmentSearchLoading 
+                          ? "Đang tìm kiếm..." 
+                          : apartmentSearchError 
+                          ? apartmentSearchError 
+                          : apartmentSearchResult 
+                          ? `Tìm thấy căn hộ: ${apartmentSearchResult.building} - Tầng ${apartmentSearchResult.floor}`
+                          : "Nhập mã căn hộ để tìm kiếm"
+                      }
+                      error={!!apartmentSearchError}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth sx={styles.formField}>
+                      <InputLabel>Vai trò</InputLabel>
+                      <Select
+                        name="isOwner"
+                        value={formData.isOwner}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          isOwner: e.target.value
+                        }))}
+                        label="Vai trò"
+                        disabled={!apartmentSearchResult || existingOwner}
+                      >
+                        <MenuItem value={false}>Cư dân</MenuItem>
+                        <MenuItem value={true} disabled={existingOwner}>
+                          Chủ hộ {existingOwner && "(Đã có chủ hộ)"}
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
                 </Grid>
-              </Grid>
+              )}
             </Box>
 
             <Box sx={styles.formSection}>

@@ -21,9 +21,14 @@ const residentService = {
 
   create: async (residentData) => {
     try {
+      console.log('Creating resident with data:', { ...residentData, password: '[REDACTED]' });
       const response = await api.post('/residents', residentData);
       return response.data;
     } catch (error) {
+      console.error('Error creating resident:', error.response?.data || error);
+      if (error.response?.data?.errors) {
+        throw new Error(error.response.data.errors.map(err => err.message).join(', '));
+      }
       throw error.response?.data || error.message;
     }
   },

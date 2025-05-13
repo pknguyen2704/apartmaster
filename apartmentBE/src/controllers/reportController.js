@@ -19,14 +19,29 @@ class ReportController {
     }
   }
 
+  // Get dashboard data
+  static async getDashboardData(req, res) {
+    try {
+      const data = await ReportService.getDashboardData();
+      res.json({
+        success: true,
+        message: 'Lấy dữ liệu dashboard thành công',
+        data
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Có lỗi xảy ra khi lấy dữ liệu dashboard',
+        error: error.message
+      });
+    }
+  }
+
   // Create new report
   static async createReport(req, res) {
     try {
-      const reportData = {
-        ...req.body,
-        employeeId: req.user.employeeId // Get employeeId from authenticated user
-      };
-      const report = await ReportService.createReport(reportData);
+      const { employeeId, note } = req.body;
+      const report = await ReportService.createReport({ employeeId, note });
       res.status(201).json({
         success: true,
         message: 'Tạo báo cáo thành công',
@@ -45,7 +60,8 @@ class ReportController {
   static async updateReport(req, res) {
     try {
       const { id } = req.params;
-      const report = await ReportService.updateReport(id, req.body);
+      const { employeeId, note } = req.body;
+      const report = await ReportService.updateReport(id, { employeeId, note });
       if (!report) {
         return res.status(404).json({
           success: false,

@@ -1,25 +1,13 @@
 const ResidentModel = require('../models/residentModel');
 const ResidentApartment = require('../models/residentApartmentModel');
-// const bcrypt = require('bcryptjs');
+const bcrypt = require('bcryptjs');
 
 const ResidentService = {
   getAllResidents: async () => {
     try {
       // Lấy danh sách cư dân
       const residents = await ResidentModel.getAll();
-      
-      // Lấy thông tin căn hộ cho từng cư dân
-      const residentsWithApartments = await Promise.all(
-        residents.map(async (resident) => {
-          const apartments = await ResidentApartment.getApartmentsByResident(resident.residentId);
-          return {
-            ...resident,
-            apartments
-          };
-        })
-      );
-
-      return residentsWithApartments;
+      return residents;
     } catch (error) {
       console.error('Error in getAllResidents:', error);
       throw error;
@@ -32,6 +20,12 @@ const ResidentService = {
 
   createResident: async (residentData) => {
     try {
+      // Hash password before saving
+      if (residentData.password) {
+        const salt = await bcrypt.genSalt(10);
+        residentData.password = await bcrypt.hash(residentData.password, salt);
+      }
+
       // Tạo cư dân mới
       const newResident = await ResidentModel.create(residentData);
       
@@ -42,7 +36,7 @@ const ResidentService = {
           ...newResident,
           apartments
         };
-    }
+      }
 
       return newResident;
     } catch (error) {
@@ -52,7 +46,11 @@ const ResidentService = {
   },
 
   updateResident: async (id, residentData) => {
-    // delete residentData.password; // Không cho cập nhật password ở đây
+    // Hash password if it's being updated
+    if (residentData.password) {
+      const salt = await bcrypt.genSalt(10);
+      residentData.password = await bcrypt.hash(residentData.password, salt);
+    }
     return ResidentModel.update(id, residentData);
   },
 

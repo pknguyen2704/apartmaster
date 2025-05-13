@@ -6,6 +6,7 @@ const mainRouter = require('./routes/index'); // Import router chính
 const morgan = require('morgan'); // Import morgan
 const authRoutes = require('./routes/authRoutes');
 const rolePermissionRoutes = require('./routes/rolePermissionRoutes');
+const feeApartmentRoutes = require('./routes/feeApartmentRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3001; // Sử dụng PORT từ .env hoặc mặc định 3001
@@ -16,16 +17,17 @@ app.use(express.json()); // Parse JSON request bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded request bodies
 
 // HTTP request logger middleware (morgan)
-if (process.env.NODE_ENV === 'development') { // Chỉ dùng 'dev' format khi ở môi trường development
-  app.use(morgan('dev')); 
-} else {
-  app.use(morgan('combined')); // Dùng format chi tiết hơn cho production
-}
+// if (process.env.NODE_ENV === 'development') { // Chỉ dùng 'dev' format khi ở môi trường development
+//   app.use(morgan('dev')); 
+// } else {
+//   app.use(morgan('combined')); // Dùng format chi tiết hơn cho production
+// }
 
 // API Routes
 app.use('/api', mainRouter);
 app.use('/api/auth', authRoutes);
 app.use('/api/role-permissions', rolePermissionRoutes);
+app.use('/api/fee-apartments', feeApartmentRoutes);
 
 // Route kiểm tra đơn giản
 app.get('/', (req, res) => {
